@@ -1,1 +1,1 @@
-# jogo.tiro ao alvo
+# jogo.tiro/ao_alvo
