@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tiro ao Alvo 2D — Fases</title>
+  <style>
+    :root{ --bg:#0f1220; --panel:#171a2b; --accent:#6ee7ff; --text:#e5e7eb; --muted:#94a3b8; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{ margin:0; font-family:system-ui,Segoe UI,Roboto,Ubuntu,Inter,Arial; background:radial-gradient(1200px 600px at 70% 0%, #18203a 0%, var(--bg) 55%); color:var(--text); display:flex; align-items:center; justify-content:center; padding:16px; }
+    .wrap{ width:min(100%, 980px); }
+    header{ display:flex; gap:12px; align-items:center; justify-content:space-between; background:linear-gradient(180deg,#1a2140,var(--panel)); border:1px solid #2a3252; border-radius:16px; padding:12px 16px; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+    .brand{ display:flex; align-items:center; gap:10px; }
+    .brand .dot{width:10px;height:10px;border-radius:999px;background:var(--accent); box-shadow:0 0 16px var(--accent)}
+    .brand h1{ font-size:18px; margin:0; letter-spacing:.4px }
+    .controls{ display:flex; flex-wrap:wrap; align-items:center; gap:10px }
+    .controls > * {background:#0e1324; border:1px solid #263153; color:var(--text); padding:8px 10px; border-radius:10px}
+    .btn{ cursor:pointer; transition:.2s transform ease }
+    .btn:hover{ transform:translateY(-1px) }
+    .btn.primary{ background:linear-gradient(180deg,#1f9bd1,#176aa0); border-color:#176aa0 }
+    .hud{ display:grid; grid-template-columns: repeat(6, 1fr); gap:12px; margin:12px 0; }
+    .card{ background:var(--panel); border:1px solid #273052; border-radius:14px; padding:12px; }
+    .stat{ font-size:12px; color:var(--muted); margin-bottom:6px }
+    .val{ font-variant-numeric:tabular-nums; font-size:20px }
+    .stage{ position:relative; background:#0b1021; border:1px solid #283255; border-radius:18px; overflow:hidden; box-shadow:0 20px 40px rgba(0,0,0,.4) }
+    canvas{ display:block; width:100%; height:auto; aspect-ratio:16/9 }
+    .centerMsg{ position:absolute; inset:0; display:grid; place-items:center; pointer-events:none }
+    .title{ text-align:center; padding:24px 18px; border-radius:16px; background:rgba(10,15,30,.75); backdrop-filter: blur(8px); border:1px solid #33406a; width:min(92%, 560px) }
+    .title h2{ margin:0 0 6px 0 }
+    .title p{ margin:0; color:var(--muted) }
+    .footer{display:flex; justify-content:space-between; gap:10px; margin-top:12px; color:var(--muted); font-size:12px}
+    @media (max-width:720px){ .hud{grid-template-columns: repeat(3, 1fr)} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand"><div class="dot"></div><h1>Tiro ao Alvo 2D — Fases</h1></div>
+      <div class="controls">
+        <label> Dificuldade
+          <select id="difficulty">
+            <option value="easy">Fácil</option>
+            <option value="normal" selected>Normal</option>
+            <option value="hard">Difícil</option>
+            <option value="insane">Insano</option>
+          </select>
+        </label>
+        <label><input type="checkbox" id="sfx" checked /> SFX</label>
+        <button class="btn primary" id="btnStart">Iniciar</button>
+        <button class="btn" id="btnRestart" title="Reiniciar fase">↻</button>
+      </div>
+    </header>
+
+    <div class="hud">
+      <div class="card"><div class="stat">Fase</div><div class="val" id="level">1</div></div>
+      <div class="card"><div class="stat">Nome</div><div class="val" id="levelName">Treino</div></div>
+      <div class="card"><div class="stat">Objetivo</div><div class="val" id="goal">500 pts</div></div>
+      <div class="card"><div class="stat">Pontos</div><div class="val" id="score">0</div></div>
+      <div class="card"><div class="stat">Tempo</div><div class="val" id="time">60.0s</div></div>
+      <div class="card"><div class="stat">Precisão</div><div class="val" id="acc">0%</div></div>
+    </div>
+
+    <div class="stage">
+      <canvas id="game" width="1280" height="720"></canvas>
+      <div class="centerMsg" id="centerMsg" aria-live="polite">
+        <div class="title">
+          <h2>Modo por Fases</h2>
+          <p>Cada fase tem tempo e objetivo próprios. Clique em <b>Iniciar</b>.</p>
+          <p>Dica: acerte o centro para combos e bônus!</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <div>Atalhos: <b>Espaço</b> inicia · <b>R</b> reinicia.</div>
+      <div>HTML5 Canvas · sem bibliotecas externas.</div>
+    </div>
+  </div>
+
+  <script>
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const ui = {
+    score: document.getElementById('score'),
+    time: document.getElementById('time'),
+    acc: document.getElementById('acc'),
+    level: document.getElementById('level'),
+    levelName: document.getElementById('levelName'),
+    goal: document.getElementById('goal'),
+    msg: document.getElementById('centerMsg'),
+    btnStart: document.getElementById('btnStart'),
+    btnRestart: document.getElementById('btnRestart'),
+    difficulty: document.getElementById('difficulty'),
+    sfx: document.getElementById('sfx')
+  };
+
+  // Responsivo (16:9)
+  const resize = () => { const r=16/9, w=canvas.parentElement.clientWidth, h=w/r; canvas.style.height=h+'px'; }; addEventListener('resize',resize); resize();
+
+  // SFX simples
+  function playBeep(freq=440, dur=0.06, type='square', vol=0.08){ if(!ui.sfx.checked) return; try{ const ac=new (window.AudioContext||window.webkitAudioContext)(); const o=ac.createOscillator(); const g=ac.createGain(); o.type=type; o.frequency.value=freq; g.gain.value=vol; o.connect(g); g.connect(ac.destination); o.start(); setTimeout(()=>{o.stop(); ac.close();}, dur*1000);}catch{} }
+
+  // Fases
+  const LEVELS = [
+    { name:'Treino',     duration:30, spawnEvery:1100, targetSpeed:70,  baseRadius:38, pattern:'straight', goal:{score:500} },
+    { name:'Aquecimento',duration:40, spawnEvery:950,  targetSpeed:95,  baseRadius:34, pattern:'drift',   goal:{score:1200} },
+    { name:'Zigue-zague',duration:45, spawnEvery:850,  targetSpeed:110, baseRadius:32, pattern:'zigzag',  goal:{score:2200} },
+    { name:'Pressa',     duration:45, spawnEvery:700,  targetSpeed:135, baseRadius:30, pattern:'drift',   goal:{score:3300} },
+    { name:'Precisão',   duration:50, spawnEvery:650,  targetSpeed:150, baseRadius:27, pattern:'zigzag',  goal:{score:4700} },
+    { name:'Insano',     duration:55, spawnEvery:520,  targetSpeed:170, baseRadius:26, pattern:'mix',     goal:{score:6500} }
+  ];
+
+  // Dificuldade (multiplicadores)
+  let diff = {speed:1.0, spawn:1.0, score:1.0};
+  function applyDifficulty(){
+    const d = ui.difficulty.value;
+    diff = d==='easy'   ? {speed:0.9,  spawn:1.15, score:0.9}
+         : d==='normal' ? {speed:1.0,  spawn:1.0,  score:1.0}
+         : d==='hard'   ? {speed:1.15, spawn:0.9,  score:1.1}
+         :                {speed:1.3,  spawn:0.8,  score:1.25};
+  }
+  applyDifficulty();
+
+  // Estado
+  let targetSpeed = 90, baseRadius = 34;
+  const State = { running:false, time:60, score:0, shots:0, hits:0, combo:1, comboTimer:0, targets:[], holes:[], lastSpawn:0, spawnEvery:900, levelIndex:0, goal:{score:500} };
+
+  // Util
+  const rand=(a,b)=>Math.random()*(b-a)+a, clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+  // Alvo
+  class Target{
+    constructor(pattern){
+      const edge = Math.random()<.5 ? 'left' : 'right';
+      this.r = rand(baseRadius*0.85, baseRadius*1.3);
+      this.y = rand(this.r+20, canvas.height - this.r - 20);
+      this.x = edge==='left' ? -this.r - 20 : canvas.width + this.r + 20;
+      const dir = edge==='left' ? 1 : -1; this.vx = dir * rand(targetSpeed*0.8, targetSpeed*1.25);
+      this.life = rand(2.5, 4.2); this.age = 0; this.spin = rand(-1,1);
+      this.pattern = pattern || 'straight'; this.oy=this.y; this.bob=rand(14,36); this.freq=rand(1.2,2.2);
+    }
+    update(dt){
+      this.x += this.vx*dt; this.age += dt;
+      if(this.pattern==='zigzag'){ this.y = this.oy + Math.sin(this.age*this.freq*3.2)*this.bob; }
+      else if(this.pattern==='drift'){ this.y += Math.sin(this.age*6.0)*8*dt*60; }
+      else if(this.pattern==='mix'){ this.y = this.oy + Math.sin(this.age*this.freq*3.6)*this.bob*1.2; }
+    }
+    draw(g){
+      const r=this.r; g.save(); g.translate(this.x,this.y); g.rotate(this.age*this.spin*0.8);
+      g.shadowColor='rgba(0,0,0,.45)'; g.shadowBlur=12; g.shadowOffsetY=4;
+      for(let i=5;i>=1;i--){ g.beginPath(); g.fillStyle = i%2?'#f43f5e':'#f8fafc'; g.arc(0,0, r*(i/5), 0, Math.PI*2); g.fill(); }
+      g.beginPath(); g.fillStyle='#0ea5e9'; g.arc(0,0, r*0.14, 0, Math.PI*2); g.fill();
+      g.restore();
+    }
+  }
+  class Hole{ constructor(x,y){ this.x=x; this.y=y; this.age=0; this.life=0.7; } update(dt){ this.age+=dt } draw(g){ const t=1-clamp(this.age/this.life,0,1); g.save(); g.globalAlpha=t; g.fillStyle='#111827'; g.beginPath(); g.arc(this.x,this.y,4,0,Math.PI*2); g.fill(); g.restore(); } }
+
+  // Loop
+  let last=performance.now();
+  function loop(now){ const dt=(now-last)/1000; last=now; update(dt); render(); requestAnimationFrame(loop); } requestAnimationFrame(loop);
+
+  function startGame(){
+    applyDifficulty();
+    const L = LEVELS[State.levelIndex];
+    targetSpeed = L.targetSpeed * diff.speed;
+    baseRadius = L.baseRadius;
+    State.spawnEvery = Math.max(320, L.spawnEvery * diff.spawn);
+
+    State.running=true; State.time=L.duration; State.score=0; State.shots=0; State.hits=0; State.combo=1; State.comboTimer=0;
+    State.targets.length=0; State.holes.length=0; State.lastSpawn=0; State.goal={...L.goal};
+
+    ui.level.textContent = State.levelIndex+1;
+    ui.levelName.textContent = L.name;
+    ui.goal.textContent = `${Math.round(State.goal.score*diff.score)} pts`;
+    ui.msg.style.display='none';
+    playBeep(700,0.09,'sawtooth',0.06);
+  }
+
+  function finish(win){
+    State.running=false; ui.msg.style.display='grid';
+    const acc = State.shots? Math.round(State.hits/State.shots*100):0;
+    ui.msg.querySelector('.title').innerHTML = `
+      <h2>${win? 'Fase concluída!':'Fim da fase' } — ${LEVELS[State.levelIndex].name}</h2>
+      <p>Pontuação: <b>${Math.floor(State.score)}</b> · Precisão: <b>${acc}%</b></p>
+      <p>${win? 'Você alcançou o objetivo!':'Você não alcançou o objetivo.'}</p>
+      <p>Clique em <b>Iniciar</b> para ${win? (State.levelIndex<LEVELS.length-1? 'ir para a próxima fase':'recomeçar do início'): 'tentar de novo'}.</p>`;
+    playBeep(win?520:200, win?0.1:0.15, 'sine', 0.08);
+    if(win){ State.levelIndex = (State.levelIndex<LEVELS.length-1)? State.levelIndex+1 : 0; }
+  }
+
+  function update(dt){
+    ui.score.textContent = Math.floor(State.score);
+    ui.acc.textContent = (State.shots? Math.round(State.hits/State.shots*100):0) + '%';
+    if(!State.running) return;
+
+    State.time -= dt; if(State.time<=0){ State.time=0; const need=Math.round(State.goal.score*diff.score); finish(State.score>=need); }
+    ui.time.textContent = State.time.toFixed(1)+'s';
+
+    State.lastSpawn += dt*1000;
+    if(State.lastSpawn >= State.spawnEvery){
+      State.lastSpawn=0;
+      const pat = (LEVELS[State.levelIndex].pattern==='mix') ? (['straight','zigzag','drift'][Math.floor(rand(0,3))]) : LEVELS[State.levelIndex].pattern;
+      State.targets.push(new Target(pat));
+      if(State.levelIndex>=4 && Math.random()<0.35){ State.targets.push(new Target(pat)); }
+    }
+
+    State.targets.forEach(t=>t.update(dt));
+    State.targets = State.targets.filter(t=> t.age<t.life && t.x>-t.r-50 && t.x<canvas.width+t.r+50);
+
+    State.comboTimer -= dt; if(State.comboTimer<=0){ State.combo=Math.max(1, State.combo-0.25); State.comboTimer=0.4; }
+    State.holes.forEach(h=>h.update(dt));
+    State.holes = State.holes.filter(h=> h.age<h.life);
+  }
+
+  function render(){
+    const g=ctx; g.clearRect(0,0,canvas.width,canvas.height);
+    const grd=g.createLinearGradient(0,0,0,canvas.height); grd.addColorStop(0,'#0b1021'); grd.addColorStop(1,'#0a0e1b'); g.fillStyle=grd; g.fillRect(0,0,canvas.width,canvas.height);
+    g.strokeStyle='rgba(255,255,255,.03)'; g.lineWidth=1; for(let y=60;y<canvas.height;y+=60){ g.beginPath(); g.moveTo(0,y); g.lineTo(canvas.width,y); g.stroke(); }
+    State.targets.forEach(t=>t.draw(g));
+    State.holes.forEach(h=>h.draw(g));
+  }
+
+  // Tiro
+  function getPos(evt){ const r=canvas.getBoundingClientRect(); const sx=canvas.width/r.width, sy=canvas.height/r.height; return {x:(evt.clientX-r.left)*sx, y:(evt.clientY-r.top)*sy}; }
+  function shoot(px,py){ if(!State.running) return; State.shots++; State.holes.push(new Hole(px,py)); let hit=false, best=0;
+    State.targets = State.targets.filter(t=>{ const d=Math.hypot(px-t.x, py-t.y); if(d<=t.r){ let ring=d/t.r, pts=0; if(ring<=0.14) pts=120; else if(ring<=0.34) pts=80; else if(ring<=0.54) pts=55; else if(ring<=0.74) pts=35; else pts=20; pts *= (t.r/baseRadius<1?1.15:1.0) * (Math.abs(t.vx)/targetSpeed); pts *= (1+(Math.floor(State.combo)-1)*0.15); best=Math.max(best,pts); hit=true; return false;} return true; });
+    if(hit){ State.hits++; State.combo=Math.min(20, State.combo+0.6); State.comboTimer=1.0; State.score+=best; playBeep(880,0.06,'square',0.07);} else { State.combo=Math.max(1, State.combo-0.9); playBeep(120,0.05,'sine',0.05);} }
+  canvas.addEventListener('mousedown',e=>{ const p=getPos(e); shoot(p.x,p.y); });
+  canvas.addEventListener('touchstart',e=>{ const t=e.changedTouches[0]; const r=canvas.getBoundingClientRect(); const sx=canvas.width/r.width, sy=canvas.height/r.height; shoot((t.clientX-r.left)*sx, (t.clientY-r.top)*sy); e.preventDefault(); }, {passive:false});
+
+  // UI
+  ui.btnStart.addEventListener('click', startGame);
+  ui.btnRestart.addEventListener('click', ()=>{ State.levelIndex=State.levelIndex; startGame(); });
+  ui.difficulty.addEventListener('change', ()=>{ if(!State.running) applyDifficulty(); });
+  window.addEventListener('keydown',e=>{ if(e.code==='Space'){ e.preventDefault(); startGame(); } if(e.code==='KeyR'){ e.preventDefault(); startGame(); } });
+
+  ui.btnRestart.setAttribute('aria-label','Reiniciar fase');
+  ui.msg.style.display='grid';
+  </script>
+</body>
+</html>
